@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/Nischaldh/linko/internal/store"
 )
 
+type closeFunc func() error 
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -27,11 +29,16 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	logger, err := initializeLogger()
+	logger, close, err := initializeLogger()
 	if err!=nil{
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
 	}
+	defer func() {
+		if err := close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to close logger: %v\n", err)
+		}
+	}()
 	st, err := store.New(dataDir, logger)
 	if err != nil {
 		logger.Printf("failed to create store: %v\n", err)
@@ -58,16 +65,27 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	return 0
 }
 
-func initializeLogger() (*log.Logger, error) {
+func initializeLogger() (*log.Logger,closeFunc, error) {
 	logFile, exists := os.LookupEnv("LINKO_LOG_FILE")
 	if exists {
 		file, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 		if err != nil {
-			return nil, err
+			return nil, nil,err
 		}
-		multiWriter := io.MultiWriter(os.Stderr, file)
-		return  log.New(multiWriter, "", log.LstdFlags), nil
+		bufferedFile := bufio.NewWriterSize(file, 8192)
+		multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
+		close := func ()error{
+			err:= bufferedFile.Flush()
+			if err!=nil{
+				return err
+			}
+			if err= file.Close();err!=nil{
+				return err
+			}
+			return nil
+		}
+		return  log.New(multiWriter, "", log.LstdFlags),close,  nil
 	}
-	return log.New(os.Stderr, "", log.LstdFlags), nil
+	return log.New(os.Stderr, "", log.LstdFlags),nil,nil
 
 }
