@@ -90,7 +90,7 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 			}
 			return nil
 		}
-		handlers = append(handlers, slog.NewTextHandler(bufferedFile, &slog.HandlerOptions{
+		handlers = append(handlers, slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		}))
 		closers = append(closers, close)
