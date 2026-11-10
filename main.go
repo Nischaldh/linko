@@ -6,16 +6,21 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Nischaldh/linko/internal/store"
+	pkgerr "github.com/pkg/errors"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/Nischaldh/linko/internal/store"
 )
 
 type closeFunc func() error
+
+type stackTracer interface {
+	error
+	StackTrace() pkgerr.StackTrace
+}
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -68,7 +73,8 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 func initializeLogger() (*slog.Logger, closeFunc, error) {
 	handlers := []slog.Handler{
 		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
+			ReplaceAttr: replaceAttr,
+			Level:       slog.LevelDebug,
 		}),
 	}
 	closers := []closeFunc{}
@@ -91,7 +97,8 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 			return nil
 		}
 		handlers = append(handlers, slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+			ReplaceAttr: replaceAttr,
+			Level:       slog.LevelInfo,
 		}))
 		closers = append(closers, close)
 	}
@@ -106,4 +113,30 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 	}
 	return slog.New(slog.NewMultiHandler(handlers...)), closer, nil
 
+}
+
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if a.Key == "error" {
+		err, ok := a.Value.Any().(error)
+		if !ok {
+			return a
+		}
+		if stackErr, ok := errors.AsType[stackTracer](err); ok {
+			return slog.GroupAttrs("error",
+				slog.Attr{
+					Key:   "message",
+					Value: slog.StringValue(stackErr.Error()),
+				},
+				slog.Attr{
+					Key: "stack_trace",
+					Value: slog.StringValue(
+						fmt.Sprintf("%+v", stackErr.StackTrace()),
+					),
+				},
+			)
+		}
+
+		return slog.String("error", fmt.Sprintf("%+v", err))
+	}
+	return a
 }
