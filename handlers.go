@@ -89,12 +89,13 @@ func (s *server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 	redirectsMu.Unlock()
 
 	http.Redirect(w, r, longURL, http.StatusFound)
+
 }
 
 func (s *server) handlerListURLs(w http.ResponseWriter, r *http.Request) {
 	codes, err := s.store.List(r.Context())
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("failed to list URLs: %v", err))
+		s.logger.Error("failed to list URLs", "error", err)
 		http.Error(w, "failed to list URLs", http.StatusInternalServerError)
 		return
 	}
